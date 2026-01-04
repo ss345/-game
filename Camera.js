@@ -1,130 +1,282 @@
-import { WebGLCoordinateSystem } from '../constants.js';
-import { Matrix4 } from '../math/Matrix4.js';
-import { Object3D } from '../core/Object3D.js';
+import { uniform } from '../core/UniformNode.js';
+import { renderGroup, sharedUniformGroup } from '../core/UniformGroupNode.js';
+import { Vector3 } from '../../math/Vector3.js';
+import { Fn, vec4 } from '../tsl/TSLBase.js';
+import { uniformArray } from './UniformArrayNode.js';
+import { builtin } from './BuiltinNode.js';
+import { screenSize } from '../display/ScreenNode.js';
 
 /**
- * Abstract base class for cameras. This class should always be inherited
- * when you build a new camera.
+ * TSL object that represents the current `index` value of the camera if used ArrayCamera.
  *
- * @abstract
- * @augments Object3D
+ * @tsl
+ * @type {UniformNode<uint>}
  */
-class Camera extends Object3D {
+export const cameraIndex = /*@__PURE__*/ uniform( 0, 'uint' ).setName( 'u_cameraIndex' ).setGroup( sharedUniformGroup( 'cameraIndex' ) ).toVarying( 'v_cameraIndex' );
 
-	/**
-	 * Constructs a new camera.
-	 */
-	constructor() {
+/**
+ * TSL object that represents the `near` value of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<float>}
+ */
+export const cameraNear = /*@__PURE__*/ uniform( 'float' ).setName( 'cameraNear' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.near );
 
-		super();
+/**
+ * TSL object that represents the `far` value of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<float>}
+ */
+export const cameraFar = /*@__PURE__*/ uniform( 'float' ).setName( 'cameraFar' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.far );
 
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		this.isCamera = true;
+/**
+ * TSL object that represents the projection matrix of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<mat4>}
+ */
+export const cameraProjectionMatrix = /*@__PURE__*/ ( Fn( ( { camera } ) => {
 
-		this.type = 'Camera';
+	let cameraProjectionMatrix;
 
-		/**
-		 * The inverse of the camera's world matrix.
-		 *
-		 * @type {Matrix4}
-		 */
-		this.matrixWorldInverse = new Matrix4();
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
 
-		/**
-		 * The camera's projection matrix.
-		 *
-		 * @type {Matrix4}
-		 */
-		this.projectionMatrix = new Matrix4();
+		const matrices = [];
 
-		/**
-		 * The inverse of the camera's projection matrix.
-		 *
-		 * @type {Matrix4}
-		 */
-		this.projectionMatrixInverse = new Matrix4();
+		for ( const subCamera of camera.cameras ) {
 
-		/**
-		 * The coordinate system in which the camera is used.
-		 *
-		 * @type {(WebGLCoordinateSystem|WebGPUCoordinateSystem)}
-		 */
-		this.coordinateSystem = WebGLCoordinateSystem;
+			matrices.push( subCamera.projectionMatrix );
 
-		this._reversedDepth = false;
+		}
+
+		const cameraProjectionMatrices = uniformArray( matrices ).setGroup( renderGroup ).setName( 'cameraProjectionMatrices' );
+
+		cameraProjectionMatrix = cameraProjectionMatrices.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraProjectionMatrix' );
+
+	} else {
+
+		cameraProjectionMatrix = uniform( 'mat4' ).setName( 'cameraProjectionMatrix' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.projectionMatrix );
 
 	}
 
-	/**
-	 * The flag that indicates whether the camera uses a reversed depth buffer.
-	 *
-	 * @type {boolean}
-	 * @default false
-	 */
-	get reversedDepth() {
+	return cameraProjectionMatrix;
 
-		return this._reversedDepth;
+} ).once() )();
 
-	}
+/**
+ * TSL object that represents the inverse projection matrix of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<mat4>}
+ */
+export const cameraProjectionMatrixInverse = /*@__PURE__*/ ( Fn( ( { camera } ) => {
 
-	copy( source, recursive ) {
+	let cameraProjectionMatrixInverse;
 
-		super.copy( source, recursive );
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
 
-		this.matrixWorldInverse.copy( source.matrixWorldInverse );
+		const matrices = [];
 
-		this.projectionMatrix.copy( source.projectionMatrix );
-		this.projectionMatrixInverse.copy( source.projectionMatrixInverse );
+		for ( const subCamera of camera.cameras ) {
 
-		this.coordinateSystem = source.coordinateSystem;
+			matrices.push( subCamera.projectionMatrixInverse );
 
-		return this;
+		}
 
-	}
+		const cameraProjectionMatricesInverse = uniformArray( matrices ).setGroup( renderGroup ).setName( 'cameraProjectionMatricesInverse' );
 
-	/**
-	 * Returns a vector representing the ("look") direction of the 3D object in world space.
-	 *
-	 * This method is overwritten since cameras have a different forward vector compared to other
-	 * 3D objects. A camera looks down its local, negative z-axis by default.
-	 *
-	 * @param {Vector3} target - The target vector the result is stored to.
-	 * @return {Vector3} The 3D object's direction in world space.
-	 */
-	getWorldDirection( target ) {
+		cameraProjectionMatrixInverse = cameraProjectionMatricesInverse.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraProjectionMatrixInverse' );
 
-		return super.getWorldDirection( target ).negate();
+	} else {
+
+		cameraProjectionMatrixInverse = uniform( 'mat4' ).setName( 'cameraProjectionMatrixInverse' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.projectionMatrixInverse );
 
 	}
 
-	updateMatrixWorld( force ) {
+	return cameraProjectionMatrixInverse;
 
-		super.updateMatrixWorld( force );
+} ).once() )();
 
-		this.matrixWorldInverse.copy( this.matrixWorld ).invert();
+/**
+ * TSL object that represents the view matrix of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<mat4>}
+ */
+export const cameraViewMatrix = /*@__PURE__*/ ( Fn( ( { camera } ) => {
+
+	let cameraViewMatrix;
+
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
+
+		const matrices = [];
+
+		for ( const subCamera of camera.cameras ) {
+
+			matrices.push( subCamera.matrixWorldInverse );
+
+		}
+
+		const cameraViewMatrices = uniformArray( matrices ).setGroup( renderGroup ).setName( 'cameraViewMatrices' );
+
+		cameraViewMatrix = cameraViewMatrices.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraViewMatrix' );
+
+	} else {
+
+		cameraViewMatrix = uniform( 'mat4' ).setName( 'cameraViewMatrix' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.matrixWorldInverse );
 
 	}
 
-	updateWorldMatrix( updateParents, updateChildren ) {
+	return cameraViewMatrix;
 
-		super.updateWorldMatrix( updateParents, updateChildren );
+} ).once() )();
 
-		this.matrixWorldInverse.copy( this.matrixWorld ).invert();
+/**
+ * TSL object that represents the world matrix of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<mat4>}
+ */
+export const cameraWorldMatrix = /*@__PURE__*/ ( Fn( ( { camera } ) => {
+
+	let cameraWorldMatrix;
+
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
+
+		const matrices = [];
+
+		for ( const subCamera of camera.cameras ) {
+
+			matrices.push( subCamera.matrixWorld );
+
+		}
+
+		const cameraWorldMatrices = uniformArray( matrices ).setGroup( renderGroup ).setName( 'cameraWorldMatrices' );
+
+		cameraWorldMatrix = cameraWorldMatrices.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraWorldMatrix' );
+
+	} else {
+
+		cameraWorldMatrix = uniform( 'mat4' ).setName( 'cameraWorldMatrix' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.matrixWorld );
 
 	}
 
-	clone() {
+	return cameraWorldMatrix;
 
-		return new this.constructor().copy( this );
+} ).once() )();
+
+/**
+ * TSL object that represents the normal matrix of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<mat3>}
+ */
+export const cameraNormalMatrix = /*@__PURE__*/ ( Fn( ( { camera } ) => {
+
+	let cameraNormalMatrix;
+
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
+
+		const matrices = [];
+
+		for ( const subCamera of camera.cameras ) {
+
+			matrices.push( subCamera.normalMatrix );
+
+		}
+
+		const cameraNormalMatrices = uniformArray( matrices ).setGroup( renderGroup ).setName( 'cameraNormalMatrices' );
+
+		cameraNormalMatrix = cameraNormalMatrices.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraNormalMatrix' );
+
+	} else {
+
+		cameraNormalMatrix = uniform( 'mat3' ).setName( 'cameraNormalMatrix' ).setGroup( renderGroup ).onRenderUpdate( ( { camera } ) => camera.normalMatrix );
 
 	}
 
-}
+	return cameraNormalMatrix;
 
-export { Camera };
+} ).once() )();
+
+/**
+ * TSL object that represents the position in world space of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<vec3>}
+ */
+export const cameraPosition = /*@__PURE__*/ ( Fn( ( { camera } ) => {
+
+	let cameraPosition;
+
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
+
+		const positions = [];
+
+		for ( let i = 0, l = camera.cameras.length; i < l; i ++ ) {
+
+			positions.push( new Vector3() );
+
+		}
+
+		const cameraPositions = uniformArray( positions ).setGroup( renderGroup ).setName( 'cameraPositions' ).onRenderUpdate( ( { camera }, self ) => {
+
+			const subCameras = camera.cameras;
+			const array = self.array;
+
+			for ( let i = 0, l = subCameras.length; i < l; i ++ ) {
+
+				array[ i ].setFromMatrixPosition( subCameras[ i ].matrixWorld );
+
+			}
+
+		} );
+
+		cameraPosition = cameraPositions.element( camera.isMultiViewCamera ? builtin( 'gl_ViewID_OVR' ) : cameraIndex ).toConst( 'cameraPosition' );
+
+	} else {
+
+		cameraPosition = uniform( new Vector3() ).setName( 'cameraPosition' ).setGroup( renderGroup ).onRenderUpdate( ( { camera }, self ) => self.value.setFromMatrixPosition( camera.matrixWorld ) );
+
+	}
+
+	return cameraPosition;
+
+} ).once() )();
+
+
+/**
+ * TSL object that represents the viewport of the camera used for the current render.
+ *
+ * @tsl
+ * @type {UniformNode<vec4>}
+ */
+export const cameraViewport = /*@__PURE__*/ ( Fn( ( { camera } ) => {
+
+	let cameraViewport;
+
+	if ( camera.isArrayCamera && camera.cameras.length > 0 ) {
+
+		const viewports = [];
+
+		for ( const subCamera of camera.cameras ) {
+
+			viewports.push( subCamera.viewport );
+
+		}
+
+		const cameraViewports = uniformArray( viewports, 'vec4' ).setGroup( renderGroup ).setName( 'cameraViewports' );
+
+		cameraViewport = cameraViewports.element( cameraIndex ).toConst( 'cameraViewport' );
+
+	} else {
+
+		// Fallback for single camera
+		cameraViewport = vec4( 0, 0, screenSize.x, screenSize.y ).toConst( 'cameraViewport' );
+
+	}
+
+	return cameraViewport;
+
+} ).once() )();
