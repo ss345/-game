@@ -1,155 +1,147 @@
-/// <reference types="node" />
-import * as nativeFs from "fs";
-import picomatch from "picomatch";
+import { FSLike } from "fdir";
 
-//#region src/api/aborter.d.ts
+//#region src/utils.d.ts
+
 /**
- * AbortController is not supported on Node 14 so we use this until we can drop
- * support for Node 14.
- */
-declare class Aborter {
-  aborted: boolean;
-  abort(): void;
-}
-//#endregion
-//#region src/api/queue.d.ts
-type OnQueueEmptyCallback = (error: Error | null, output: WalkerState) => void;
+* Converts a path to a pattern depending on the platform.
+* Identical to {@link escapePath} on POSIX systems.
+* @see {@link https://superchupu.dev/tinyglobby/documentation#convertPathToPattern}
+*/
+declare const convertPathToPattern: (path: string) => string;
 /**
- * This is a custom stateless queue to track concurrent async fs calls.
- * It increments a counter whenever a call is queued and decrements it
- * as soon as it completes. When the counter hits 0, it calls onQueueEmpty.
- */
-declare class Queue {
-  private onQueueEmpty?;
-  count: number;
-  constructor(onQueueEmpty?: OnQueueEmptyCallback | undefined);
-  enqueue(): number;
-  dequeue(error: Error | null, output: WalkerState): void;
-}
-//#endregion
-//#region src/types.d.ts
-type Counts = {
-  files: number;
-  directories: number;
-  /**
-   * @deprecated use `directories` instead. Will be removed in v7.0.
-   */
-  dirs: number;
-};
-type Group = {
-  directory: string;
-  files: string[];
-  /**
-   * @deprecated use `directory` instead. Will be removed in v7.0.
-   */
-  dir: string;
-};
-type GroupOutput = Group[];
-type OnlyCountsOutput = Counts;
-type PathsOutput = string[];
-type Output = OnlyCountsOutput | PathsOutput | GroupOutput;
-type FSLike = {
-  readdir: typeof nativeFs.readdir;
-  readdirSync: typeof nativeFs.readdirSync;
-  realpath: typeof nativeFs.realpath;
-  realpathSync: typeof nativeFs.realpathSync;
-  stat: typeof nativeFs.stat;
-  statSync: typeof nativeFs.statSync;
-};
-type WalkerState = {
-  root: string;
-  paths: string[];
-  groups: Group[];
-  counts: Counts;
-  options: Options;
-  queue: Queue;
-  controller: Aborter;
-  fs: FSLike;
-  symlinks: Map<string, string>;
-  visited: string[];
-};
-type ResultCallback<TOutput extends Output> = (error: Error | null, output: TOutput) => void;
-type FilterPredicate = (path: string, isDirectory: boolean) => boolean;
-type ExcludePredicate = (dirName: string, dirPath: string) => boolean;
-type PathSeparator = "/" | "\\";
-type Options<TGlobFunction = unknown> = {
-  includeBasePath?: boolean;
-  includeDirs?: boolean;
-  normalizePath?: boolean;
-  maxDepth: number;
-  maxFiles?: number;
-  resolvePaths?: boolean;
-  suppressErrors: boolean;
-  group?: boolean;
-  onlyCounts?: boolean;
-  filters: FilterPredicate[];
-  resolveSymlinks?: boolean;
-  useRealPaths?: boolean;
-  excludeFiles?: boolean;
-  excludeSymlinks?: boolean;
-  exclude?: ExcludePredicate;
-  relativePaths?: boolean;
-  pathSeparator: PathSeparator;
-  signal?: AbortSignal;
-  globFunction?: TGlobFunction;
-  fs?: FSLike;
-};
-type GlobMatcher = (test: string) => boolean;
-type GlobFunction = (glob: string | string[], ...params: unknown[]) => GlobMatcher;
-type GlobParams<T> = T extends ((globs: string | string[], ...params: infer TParams extends unknown[]) => GlobMatcher) ? TParams : [];
-//#endregion
-//#region src/builder/api-builder.d.ts
-declare class APIBuilder<TReturnType extends Output> {
-  private readonly root;
-  private readonly options;
-  constructor(root: string, options: Options);
-  withPromise(): Promise<TReturnType>;
-  withCallback(cb: ResultCallback<TReturnType>): void;
-  sync(): TReturnType;
-}
-//#endregion
-//#region src/builder/index.d.ts
-declare class Builder<TReturnType extends Output = PathsOutput, TGlobFunction = typeof picomatch> {
-  private readonly globCache;
-  private options;
-  private globFunction?;
-  constructor(options?: Partial<Options<TGlobFunction>>);
-  group(): Builder<GroupOutput, TGlobFunction>;
-  withPathSeparator(separator: "/" | "\\"): this;
-  withBasePath(): this;
-  withRelativePaths(): this;
-  withDirs(): this;
-  withMaxDepth(depth: number): this;
-  withMaxFiles(limit: number): this;
-  withFullPaths(): this;
-  withErrors(): this;
-  withSymlinks({
-    resolvePaths
-  }?: {
-    resolvePaths?: boolean | undefined;
-  }): this;
-  withAbortSignal(signal: AbortSignal): this;
-  normalize(): this;
-  filter(predicate: FilterPredicate): this;
-  onlyDirs(): this;
-  exclude(predicate: ExcludePredicate): this;
-  onlyCounts(): Builder<OnlyCountsOutput, TGlobFunction>;
-  crawl(root?: string): APIBuilder<TReturnType>;
-  withGlobFunction<TFunc>(fn: TFunc): Builder<TReturnType, TFunc>;
-  /**
-   * @deprecated Pass options using the constructor instead:
-   * ```ts
-   * new fdir(options).crawl("/path/to/root");
-   * ```
-   * This method will be removed in v7.0
-   */
-  crawlWithOptions(root: string, options: Partial<Options<TGlobFunction>>): APIBuilder<TReturnType>;
-  glob(...patterns: string[]): Builder<TReturnType, TGlobFunction>;
-  globWithOptions(patterns: string[]): Builder<TReturnType, TGlobFunction>;
-  globWithOptions(patterns: string[], ...options: GlobParams<TGlobFunction>): Builder<TReturnType, TGlobFunction>;
-}
+* Escapes a path's special characters depending on the platform.
+* @see {@link https://superchupu.dev/tinyglobby/documentation#escapePath}
+*/
+declare const escapePath: (path: string) => string;
+/**
+* Checks if a pattern has dynamic parts.
+*
+* Has a few minor differences with [`fast-glob`](https://github.com/mrmlnc/fast-glob) for better accuracy:
+*
+* - Doesn't necessarily return `false` on patterns that include `\`.
+* - Returns `true` if the pattern includes parentheses, regardless of them representing one single pattern or not.
+* - Returns `true` for unfinished glob extensions i.e. `(h`, `+(h`.
+* - Returns `true` for unfinished brace expansions as long as they include `,` or `..`.
+*
+* @see {@link https://superchupu.dev/tinyglobby/documentation#isDynamicPattern}
+*/
+declare function isDynamicPattern(pattern: string, options?: {
+  caseSensitiveMatch: boolean;
+}): boolean;
 //#endregion
 //#region src/index.d.ts
-type Fdir = typeof Builder;
+interface GlobOptions {
+  /**
+  * Whether to return absolute paths. Disable to have relative paths.
+  * @default false
+  */
+  absolute?: boolean;
+  /**
+  * Enables support for brace expansion syntax, like `{a,b}` or `{1..9}`.
+  * @default true
+  */
+  braceExpansion?: boolean;
+  /**
+  * Whether to match in case-sensitive mode.
+  * @default true
+  */
+  caseSensitiveMatch?: boolean;
+  /**
+  * The working directory in which to search. Results will be returned relative to this directory, unless
+  * {@link absolute} is set.
+  *
+  * It is important to avoid globbing outside this directory when possible, even with absolute paths enabled,
+  * as doing so can harm performance due to having to recalculate relative paths.
+  * @default process.cwd()
+  */
+  cwd?: string | URL;
+  /**
+  * Logs useful debug information. Meant for development purposes. Logs can change at any time.
+  * @default false
+  */
+  debug?: boolean;
+  /**
+  * Maximum directory depth to crawl.
+  * @default Infinity
+  */
+  deep?: number;
+  /**
+  * Whether to return entries that start with a dot, like `.gitignore` or `.prettierrc`.
+  * @default false
+  */
+  dot?: boolean;
+  /**
+  * Whether to automatically expand directory patterns.
+  *
+  * Important to disable if migrating from [`fast-glob`](https://github.com/mrmlnc/fast-glob).
+  * @default true
+  */
+  expandDirectories?: boolean;
+  /**
+  * Enables support for extglobs, like `+(pattern)`.
+  * @default true
+  */
+  extglob?: boolean;
+  /**
+  * Whether to traverse and include symbolic links. Can slightly affect performance.
+  * @default true
+  */
+  followSymbolicLinks?: boolean;
+  /**
+  * An object that overrides `node:fs` functions.
+  * @default import('node:fs')
+  */
+  fs?: FileSystemAdapter;
+  /**
+  * Enables support for matching nested directories with globstars (`**`).
+  * If `false`, `**` behaves exactly like `*`.
+  * @default true
+  */
+  globstar?: boolean;
+  /**
+  * Glob patterns to exclude from the results.
+  * @default []
+  */
+  ignore?: string | readonly string[];
+  /**
+  * Enable to only return directories.
+  * If `true`, disables {@link onlyFiles}.
+  * @default false
+  */
+  onlyDirectories?: boolean;
+  /**
+  * Enable to only return files.
+  * @default true
+  */
+  onlyFiles?: boolean;
+  /**
+  * @deprecated Provide patterns as the first argument instead.
+  */
+  patterns?: string | readonly string[];
+  /**
+  * An `AbortSignal` to abort crawling the file system.
+  * @default undefined
+  */
+  signal?: AbortSignal;
+}
+type FileSystemAdapter = Partial<FSLike>;
+/**
+* Asynchronously match files following a glob pattern.
+* @see {@link https://superchupu.dev/tinyglobby/documentation#glob}
+*/
+declare function glob(patterns: string | readonly string[], options?: Omit<GlobOptions, "patterns">): Promise<string[]>;
+/**
+* @deprecated Provide patterns as the first argument instead.
+*/
+declare function glob(options: GlobOptions): Promise<string[]>;
+/**
+* Synchronously match files following a glob pattern.
+* @see {@link https://superchupu.dev/tinyglobby/documentation#globSync}
+*/
+declare function globSync(patterns: string | readonly string[], options?: Omit<GlobOptions, "patterns">): string[];
+/**
+* @deprecated Provide patterns as the first argument instead.
+*/
+declare function globSync(options: GlobOptions): string[];
 //#endregion
-export { Counts, ExcludePredicate, FSLike, Fdir, FilterPredicate, GlobFunction, GlobMatcher, GlobParams, Group, GroupOutput, OnlyCountsOutput, Options, Output, PathSeparator, PathsOutput, ResultCallback, WalkerState, Builder as fdir };
+export { FileSystemAdapter, GlobOptions, convertPathToPattern, escapePath, glob, globSync, isDynamicPattern };
