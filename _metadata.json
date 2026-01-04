@@ -1,0 +1,25 @@
+{
+  "hash": "6eb29233",
+  "configHash": "bd5c0535",
+  "lockfileHash": "17428dcf",
+  "browserHash": "c9fffc2a",
+  "optimized": {
+    "three": {
+      "src": "../../three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "ede564f9",
+      "needsInterop": false
+    },
+    "three/examples/jsm/controls/PointerLockControls.js": {
+      "src": "../../three/examples/jsm/controls/PointerLockControls.js",
+      "file": "three_examples_jsm_controls_PointerLockControls__js.js",
+      "fileHash": "30fc03be",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-XSTVJSXX": {
+      "file": "chunk-XSTVJSXX.js"
+    }
+  }
+}
