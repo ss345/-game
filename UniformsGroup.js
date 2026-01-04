@@ -1,25 +1,24 @@
-import { EventDispatcher } from './EventDispatcher.js';
-import { StaticDrawUsage } from '../constants.js';
-
-let _id = 0;
+import UniformBuffer from './UniformBuffer.js';
+import { GPU_CHUNK_BYTES } from './Constants.js';
+import { error } from '../../utils.js';
 
 /**
- * A class for managing multiple uniforms in a single group. The renderer will process
- * such a definition as a single UBO.
+ * This class represents a uniform buffer binding but with
+ * an API that allows to maintain individual uniform objects.
  *
- * Since this class can only be used in context of {@link ShaderMaterial}, it is only supported
- * in {@link WebGLRenderer}.
- *
- * @augments EventDispatcher
+ * @private
+ * @augments UniformBuffer
  */
-class UniformsGroup extends EventDispatcher {
+class UniformsGroup extends UniformBuffer {
 
 	/**
 	 * Constructs a new uniforms group.
+	 *
+	 * @param {string} name - The group's name.
 	 */
-	constructor() {
+	constructor( name ) {
 
-		super();
+		super( name );
 
 		/**
 		 * This flag can be used for type testing.
@@ -31,31 +30,18 @@ class UniformsGroup extends EventDispatcher {
 		this.isUniformsGroup = true;
 
 		/**
-		 * The ID of the 3D object.
+		 * An array with the raw uniform values.
 		 *
-		 * @name UniformsGroup#id
-		 * @type {number}
-		 * @readonly
+		 * @private
+		 * @type {?Array<number>}
+		 * @default null
 		 */
-		Object.defineProperty( this, 'id', { value: _id ++ } );
+		this._values = null;
 
 		/**
-		 * The name of the uniforms group.
+		 * An array of uniform objects.
 		 *
-		 * @type {string}
-		 */
-		this.name = '';
-
-		/**
-		 * The buffer usage.
-		 *
-		 * @type {(StaticDrawUsage|DynamicDrawUsage|StreamDrawUsage|StaticReadUsage|DynamicReadUsage|StreamReadUsage|StaticCopyUsage|DynamicCopyUsage|StreamCopyUsage)}
-		 * @default StaticDrawUsage
-		 */
-		this.usage = StaticDrawUsage;
-
-		/**
-		 * An array holding the uniforms.
+		 * The order of uniforms in this array must match the order of uniforms in the shader.
 		 *
 		 * @type {Array<Uniform>}
 		 */
@@ -64,12 +50,12 @@ class UniformsGroup extends EventDispatcher {
 	}
 
 	/**
-	 * Adds the given uniform to this uniforms group.
+	 * Adds a uniform to this group.
 	 *
 	 * @param {Uniform} uniform - The uniform to add.
-	 * @return {UniformsGroup} A reference to this uniforms group.
+	 * @return {UniformsGroup} A reference to this group.
 	 */
-	add( uniform ) {
+	addUniform( uniform ) {
 
 		this.uniforms.push( uniform );
 
@@ -78,85 +64,18 @@ class UniformsGroup extends EventDispatcher {
 	}
 
 	/**
-	 * Removes the given uniform from this uniforms group.
+	 * Removes a uniform from this group.
 	 *
 	 * @param {Uniform} uniform - The uniform to remove.
-	 * @return {UniformsGroup} A reference to this uniforms group.
+	 * @return {UniformsGroup} A reference to this group.
 	 */
-	remove( uniform ) {
+	removeUniform( uniform ) {
 
 		const index = this.uniforms.indexOf( uniform );
 
-		if ( index !== - 1 ) this.uniforms.splice( index, 1 );
+		if ( index !== - 1 ) {
 
-		return this;
-
-	}
-
-	/**
-	 * Sets the name of this uniforms group.
-	 *
-	 * @param {string} name - The name to set.
-	 * @return {UniformsGroup} A reference to this uniforms group.
-	 */
-	setName( name ) {
-
-		this.name = name;
-
-		return this;
-
-	}
-
-	/**
-	 * Sets the usage of this uniforms group.
-	 *
-	 * @param {(StaticDrawUsage|DynamicDrawUsage|StreamDrawUsage|StaticReadUsage|DynamicReadUsage|StreamReadUsage|StaticCopyUsage|DynamicCopyUsage|StreamCopyUsage)} value - The usage to set.
-	 * @return {UniformsGroup} A reference to this uniforms group.
-	 */
-	setUsage( value ) {
-
-		this.usage = value;
-
-		return this;
-
-	}
-
-	/**
-	 * Frees the GPU-related resources allocated by this instance. Call this
-	 * method whenever this instance is no longer used in your app.
-	 *
-	 * @fires Texture#dispose
-	 */
-	dispose() {
-
-		this.dispatchEvent( { type: 'dispose' } );
-
-	}
-
-	/**
-	 * Copies the values of the given uniforms group to this instance.
-	 *
-	 * @param {UniformsGroup} source - The uniforms group to copy.
-	 * @return {UniformsGroup} A reference to this uniforms group.
-	 */
-	copy( source ) {
-
-		this.name = source.name;
-		this.usage = source.usage;
-
-		const uniformsSource = source.uniforms;
-
-		this.uniforms.length = 0;
-
-		for ( let i = 0, l = uniformsSource.length; i < l; i ++ ) {
-
-			const uniforms = Array.isArray( uniformsSource[ i ] ) ? uniformsSource[ i ] : [ uniformsSource[ i ] ];
-
-			for ( let j = 0; j < uniforms.length; j ++ ) {
-
-				this.uniforms.push( uniforms[ j ].clone() );
-
-			}
+			this.uniforms.splice( index, 1 );
 
 		}
 
@@ -165,16 +84,405 @@ class UniformsGroup extends EventDispatcher {
 	}
 
 	/**
-	 * Returns a new uniforms group with copied values from this instance.
+	 * An array with the raw uniform values.
 	 *
-	 * @return {UniformsGroup} A clone of this instance.
+	 * @type {Array<number>}
 	 */
-	clone() {
+	get values() {
 
-		return new this.constructor().copy( this );
+		if ( this._values === null ) {
+
+			this._values = Array.from( this.buffer );
+
+		}
+
+		return this._values;
+
+	}
+
+	/**
+	 * A Float32 array buffer with the uniform values.
+	 *
+	 * @type {Float32Array}
+	 */
+	get buffer() {
+
+		let buffer = this._buffer;
+
+		if ( buffer === null ) {
+
+			const byteLength = this.byteLength;
+
+			buffer = new Float32Array( new ArrayBuffer( byteLength ) );
+
+			this._buffer = buffer;
+
+		}
+
+		return buffer;
+
+	}
+
+	/**
+	 * The byte length of the buffer with correct buffer alignment.
+	 *
+	 * @type {number}
+	 */
+	get byteLength() {
+
+		const bytesPerElement = this.bytesPerElement;
+
+		let offset = 0; // global buffer offset in bytes
+
+		for ( let i = 0, l = this.uniforms.length; i < l; i ++ ) {
+
+			const uniform = this.uniforms[ i ];
+
+			const boundary = uniform.boundary;
+			const itemSize = uniform.itemSize * bytesPerElement; // size of the uniform in bytes
+
+			const chunkOffset = offset % GPU_CHUNK_BYTES; // offset in the current chunk
+			const chunkPadding = chunkOffset % boundary; // required padding to match boundary
+			const chunkStart = chunkOffset + chunkPadding; // start position in the current chunk for the data
+
+			offset += chunkPadding;
+
+			// Check for chunk overflow
+			if ( chunkStart !== 0 && ( GPU_CHUNK_BYTES - chunkStart ) < itemSize ) {
+
+				// Add padding to the end of the chunk
+				offset += ( GPU_CHUNK_BYTES - chunkStart );
+
+			}
+
+			uniform.offset = offset / bytesPerElement;
+
+			offset += itemSize;
+
+		}
+
+		return Math.ceil( offset / GPU_CHUNK_BYTES ) * GPU_CHUNK_BYTES;
+
+	}
+
+	/**
+	 * Updates this group by updating each uniform object of
+	 * the internal uniform list. The uniform objects check if their
+	 * values has actually changed so this method only returns
+	 * `true` if there is a real value change.
+	 *
+	 * @return {boolean} Whether the uniforms have been updated and
+	 * must be uploaded to the GPU.
+	 */
+	update() {
+
+		let updated = false;
+
+		for ( const uniform of this.uniforms ) {
+
+			if ( this.updateByType( uniform ) === true ) {
+
+				updated = true;
+
+			}
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given uniform by calling an update method matching
+	 * the uniforms type.
+	 *
+	 * @param {Uniform} uniform - The uniform to update.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateByType( uniform ) {
+
+		if ( uniform.isNumberUniform ) return this.updateNumber( uniform );
+		if ( uniform.isVector2Uniform ) return this.updateVector2( uniform );
+		if ( uniform.isVector3Uniform ) return this.updateVector3( uniform );
+		if ( uniform.isVector4Uniform ) return this.updateVector4( uniform );
+		if ( uniform.isColorUniform ) return this.updateColor( uniform );
+		if ( uniform.isMatrix3Uniform ) return this.updateMatrix3( uniform );
+		if ( uniform.isMatrix4Uniform ) return this.updateMatrix4( uniform );
+
+		error( 'WebGPUUniformsGroup: Unsupported uniform type.', uniform );
+
+	}
+
+	/**
+	 * Updates a given Number uniform.
+	 *
+	 * @param {NumberUniform} uniform - The Number uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateNumber( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const v = uniform.getValue();
+		const offset = uniform.offset;
+		const type = uniform.getType();
+
+		if ( a[ offset ] !== v ) {
+
+			const b = this._getBufferForType( type );
+
+			b[ offset ] = a[ offset ] = v;
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Vector2 uniform.
+	 *
+	 * @param {Vector2Uniform} uniform - The Vector2 uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateVector2( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const v = uniform.getValue();
+		const offset = uniform.offset;
+		const type = uniform.getType();
+
+		if ( a[ offset + 0 ] !== v.x || a[ offset + 1 ] !== v.y ) {
+
+			const b = this._getBufferForType( type );
+
+			b[ offset + 0 ] = a[ offset + 0 ] = v.x;
+			b[ offset + 1 ] = a[ offset + 1 ] = v.y;
+
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Vector3 uniform.
+	 *
+	 * @param {Vector3Uniform} uniform - The Vector3 uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateVector3( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const v = uniform.getValue();
+		const offset = uniform.offset;
+		const type = uniform.getType();
+
+		if ( a[ offset + 0 ] !== v.x || a[ offset + 1 ] !== v.y || a[ offset + 2 ] !== v.z ) {
+
+			const b = this._getBufferForType( type );
+
+			b[ offset + 0 ] = a[ offset + 0 ] = v.x;
+			b[ offset + 1 ] = a[ offset + 1 ] = v.y;
+			b[ offset + 2 ] = a[ offset + 2 ] = v.z;
+
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Vector4 uniform.
+	 *
+	 * @param {Vector4Uniform} uniform - The Vector4 uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateVector4( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const v = uniform.getValue();
+		const offset = uniform.offset;
+		const type = uniform.getType();
+
+		if ( a[ offset + 0 ] !== v.x || a[ offset + 1 ] !== v.y || a[ offset + 2 ] !== v.z || a[ offset + 4 ] !== v.w ) {
+
+			const b = this._getBufferForType( type );
+
+			b[ offset + 0 ] = a[ offset + 0 ] = v.x;
+			b[ offset + 1 ] = a[ offset + 1 ] = v.y;
+			b[ offset + 2 ] = a[ offset + 2 ] = v.z;
+			b[ offset + 3 ] = a[ offset + 3 ] = v.w;
+
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Color uniform.
+	 *
+	 * @param {ColorUniform} uniform - The Color uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateColor( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const c = uniform.getValue();
+		const offset = uniform.offset;
+
+		if ( a[ offset + 0 ] !== c.r || a[ offset + 1 ] !== c.g || a[ offset + 2 ] !== c.b ) {
+
+			const b = this.buffer;
+
+			b[ offset + 0 ] = a[ offset + 0 ] = c.r;
+			b[ offset + 1 ] = a[ offset + 1 ] = c.g;
+			b[ offset + 2 ] = a[ offset + 2 ] = c.b;
+
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Matrix3 uniform.
+	 *
+	 * @param {Matrix3Uniform} uniform - The Matrix3 uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateMatrix3( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const e = uniform.getValue().elements;
+		const offset = uniform.offset;
+
+		if ( a[ offset + 0 ] !== e[ 0 ] || a[ offset + 1 ] !== e[ 1 ] || a[ offset + 2 ] !== e[ 2 ] ||
+			a[ offset + 4 ] !== e[ 3 ] || a[ offset + 5 ] !== e[ 4 ] || a[ offset + 6 ] !== e[ 5 ] ||
+			a[ offset + 8 ] !== e[ 6 ] || a[ offset + 9 ] !== e[ 7 ] || a[ offset + 10 ] !== e[ 8 ] ) {
+
+			const b = this.buffer;
+
+			b[ offset + 0 ] = a[ offset + 0 ] = e[ 0 ];
+			b[ offset + 1 ] = a[ offset + 1 ] = e[ 1 ];
+			b[ offset + 2 ] = a[ offset + 2 ] = e[ 2 ];
+			b[ offset + 4 ] = a[ offset + 4 ] = e[ 3 ];
+			b[ offset + 5 ] = a[ offset + 5 ] = e[ 4 ];
+			b[ offset + 6 ] = a[ offset + 6 ] = e[ 5 ];
+			b[ offset + 8 ] = a[ offset + 8 ] = e[ 6 ];
+			b[ offset + 9 ] = a[ offset + 9 ] = e[ 7 ];
+			b[ offset + 10 ] = a[ offset + 10 ] = e[ 8 ];
+
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Updates a given Matrix4 uniform.
+	 *
+	 * @param {Matrix4Uniform} uniform - The Matrix4 uniform.
+	 * @return {boolean} Whether the uniform has been updated or not.
+	 */
+	updateMatrix4( uniform ) {
+
+		let updated = false;
+
+		const a = this.values;
+		const e = uniform.getValue().elements;
+		const offset = uniform.offset;
+
+		if ( arraysEqual( a, e, offset ) === false ) {
+
+			const b = this.buffer;
+			b.set( e, offset );
+			setArray( a, e, offset );
+			updated = true;
+
+		}
+
+		return updated;
+
+	}
+
+	/**
+	 * Returns a typed array that matches the given data type.
+	 *
+	 * @private
+	 * @param {string} type - The data type.
+	 * @return {TypedArray} The typed array.
+	 */
+	_getBufferForType( type ) {
+
+		if ( type === 'int' || type === 'ivec2' || type === 'ivec3' || type === 'ivec4' ) return new Int32Array( this.buffer.buffer );
+		if ( type === 'uint' || type === 'uvec2' || type === 'uvec3' || type === 'uvec4' ) return new Uint32Array( this.buffer.buffer );
+		return this.buffer;
 
 	}
 
 }
 
-export { UniformsGroup };
+/**
+ * Sets the values of the second array to the first array.
+ *
+ * @private
+ * @param {TypedArray} a - The first array.
+ * @param {TypedArray} b - The second array.
+ * @param {number} offset - An index offset for the first array.
+ */
+function setArray( a, b, offset ) {
+
+	for ( let i = 0, l = b.length; i < l; i ++ ) {
+
+		a[ offset + i ] = b[ i ];
+
+	}
+
+}
+
+/**
+ * Returns `true` if the given arrays are equal.
+ *
+ * @private
+ * @param {TypedArray} a - The first array.
+ * @param {TypedArray} b - The second array.
+ * @param {number} offset - An index offset for the first array.
+ * @return {boolean} Whether the given arrays are equal or not.
+ */
+function arraysEqual( a, b, offset ) {
+
+	for ( let i = 0, l = b.length; i < l; i ++ ) {
+
+		if ( a[ offset + i ] !== b[ i ] ) return false;
+
+	}
+
+	return true;
+
+}
+
+export default UniformsGroup;
