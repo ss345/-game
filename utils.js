@@ -1,56 +1,228 @@
-export function createValueSpan( id = null ) {
+function arrayMin( array ) {
 
-	const span = document.createElement( 'span' );
-	span.className = 'value';
+	if ( array.length === 0 ) return Infinity;
 
-	if ( id !== null ) span.id = id;
+	let min = array[ 0 ];
 
-	return span;
+	for ( let i = 1, l = array.length; i < l; ++ i ) {
+
+		if ( array[ i ] < min ) min = array[ i ];
+
+	}
+
+	return min;
 
 }
 
-export function setText( element, text ) {
+function arrayMax( array ) {
 
-	const el = element instanceof HTMLElement ? element : document.getElementById( element );
+	if ( array.length === 0 ) return - Infinity;
 
-	if ( el && el.textContent !== text ) {
+	let max = array[ 0 ];
 
-		el.textContent = text;
+	for ( let i = 1, l = array.length; i < l; ++ i ) {
+
+		if ( array[ i ] > max ) max = array[ i ];
+
+	}
+
+	return max;
+
+}
+
+function arrayNeedsUint32( array ) {
+
+	// assumes larger values usually on last
+
+	for ( let i = array.length - 1; i >= 0; -- i ) {
+
+		if ( array[ i ] >= 65535 ) return true; // account for PRIMITIVE_RESTART_FIXED_INDEX, #24565
+
+	}
+
+	return false;
+
+}
+
+const TYPED_ARRAYS = {
+	Int8Array: Int8Array,
+	Uint8Array: Uint8Array,
+	Uint8ClampedArray: Uint8ClampedArray,
+	Int16Array: Int16Array,
+	Uint16Array: Uint16Array,
+	Int32Array: Int32Array,
+	Uint32Array: Uint32Array,
+	Float32Array: Float32Array,
+	Float64Array: Float64Array
+};
+
+function getTypedArray( type, buffer ) {
+
+	return new TYPED_ARRAYS[ type ]( buffer );
+
+}
+
+/**
+ * Returns `true` if the given object is a typed array.
+ *
+ * @param {any} array - The object to check.
+ * @return {boolean} Whether the given object is a typed array.
+ */
+function isTypedArray( array ) {
+
+	return ArrayBuffer.isView( array ) && ! ( array instanceof DataView );
+
+}
+
+function createElementNS( name ) {
+
+	return document.createElementNS( 'http://www.w3.org/1999/xhtml', name );
+
+}
+
+function createCanvasElement() {
+
+	const canvas = createElementNS( 'canvas' );
+	canvas.style.display = 'block';
+	return canvas;
+
+}
+
+const _cache = {};
+
+let _setConsoleFunction = null;
+
+function setConsoleFunction( fn ) {
+
+	_setConsoleFunction = fn;
+
+}
+
+function getConsoleFunction() {
+
+	return _setConsoleFunction;
+
+}
+
+function log( ...params ) {
+
+	const message = 'THREE.' + params.shift();
+
+	if ( _setConsoleFunction ) {
+
+		_setConsoleFunction( 'log', message, ...params );
+
+	} else {
+
+		console.log( message, ...params );
 
 	}
 
 }
 
-export function getText( element ) {
+function warn( ...params ) {
 
-	const el = element instanceof HTMLElement ? element : document.getElementById( element );
+	const message = 'THREE.' + params.shift();
 
-	return el ? el.textContent : null;
+	if ( _setConsoleFunction ) {
 
-}
+		_setConsoleFunction( 'warn', message, ...params );
 
-export function splitPath( fullPath ) {
+	} else {
 
-	const lastSlash = fullPath.lastIndexOf( '/' );
-
-	if ( lastSlash === - 1 ) {
-
-		return {
-			path: '',
-			name: fullPath.trim()
-		};
+		console.warn( message, ...params );
 
 	}
 
-	const path = fullPath.substring( 0, lastSlash ).trim();
-	const name = fullPath.substring( lastSlash + 1 ).trim();
+}
 
-	return { path, name };
+function error( ...params ) {
+
+	const message = 'THREE.' + params.shift();
+
+	if ( _setConsoleFunction ) {
+
+		_setConsoleFunction( 'error', message, ...params );
+
+	} else {
+
+		console.error( message, ...params );
+
+	}
 
 }
 
-export function splitCamelCase( str ) {
+function warnOnce( ...params ) {
 
-	return str.replace( /([a-z0-9])([A-Z])/g, '$1 $2' ).trim();
+	const message = params.join( ' ' );
+
+	if ( message in _cache ) return;
+
+	_cache[ message ] = true;
+
+	warn( ...params );
 
 }
+
+function probeAsync( gl, sync, interval ) {
+
+	return new Promise( function ( resolve, reject ) {
+
+		function probe() {
+
+			switch ( gl.clientWaitSync( sync, gl.SYNC_FLUSH_COMMANDS_BIT, 0 ) ) {
+
+				case gl.WAIT_FAILED:
+					reject();
+					break;
+
+				case gl.TIMEOUT_EXPIRED:
+					setTimeout( probe, interval );
+					break;
+
+				default:
+					resolve();
+
+			}
+
+		}
+
+		setTimeout( probe, interval );
+
+	} );
+
+}
+
+function toNormalizedProjectionMatrix( projectionMatrix ) {
+
+	const m = projectionMatrix.elements;
+
+	// Convert [-1, 1] to [0, 1] projection matrix
+	m[ 2 ] = 0.5 * m[ 2 ] + 0.5 * m[ 3 ];
+	m[ 6 ] = 0.5 * m[ 6 ] + 0.5 * m[ 7 ];
+	m[ 10 ] = 0.5 * m[ 10 ] + 0.5 * m[ 11 ];
+	m[ 14 ] = 0.5 * m[ 14 ] + 0.5 * m[ 15 ];
+
+}
+
+function toReversedProjectionMatrix( projectionMatrix ) {
+
+	const m = projectionMatrix.elements;
+	const isPerspectiveMatrix = m[ 11 ] === - 1;
+
+	// Reverse [0, 1] projection matrix
+	if ( isPerspectiveMatrix ) {
+
+		m[ 10 ] = - m[ 10 ] - 1;
+		m[ 14 ] = - m[ 14 ];
+
+	} else {
+
+		m[ 10 ] = - m[ 10 ];
+		m[ 14 ] = - m[ 14 ] + 1;
+
+	}
+
+}
+
+export { arrayMin, arrayMax, arrayNeedsUint32, getTypedArray, createElementNS, createCanvasElement, setConsoleFunction, getConsoleFunction, log, warn, error, warnOnce, probeAsync, toNormalizedProjectionMatrix, toReversedProjectionMatrix, isTypedArray };
