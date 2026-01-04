@@ -1,72 +1,56 @@
-/*global navigator*/
-'use strict';
+export function createValueSpan( id = null ) {
 
-const {
-  REGEX_BACKSLASH,
-  REGEX_REMOVE_BACKSLASH,
-  REGEX_SPECIAL_CHARS,
-  REGEX_SPECIAL_CHARS_GLOBAL
-} = require('./constants');
+	const span = document.createElement( 'span' );
+	span.className = 'value';
 
-exports.isObject = val => val !== null && typeof val === 'object' && !Array.isArray(val);
-exports.hasRegexChars = str => REGEX_SPECIAL_CHARS.test(str);
-exports.isRegexChar = str => str.length === 1 && exports.hasRegexChars(str);
-exports.escapeRegex = str => str.replace(REGEX_SPECIAL_CHARS_GLOBAL, '\\$1');
-exports.toPosixSlashes = str => str.replace(REGEX_BACKSLASH, '/');
+	if ( id !== null ) span.id = id;
 
-exports.isWindows = () => {
-  if (typeof navigator !== 'undefined' && navigator.platform) {
-    const platform = navigator.platform.toLowerCase();
-    return platform === 'win32' || platform === 'windows';
-  }
+	return span;
 
-  if (typeof process !== 'undefined' && process.platform) {
-    return process.platform === 'win32';
-  }
+}
 
-  return false;
-};
+export function setText( element, text ) {
 
-exports.removeBackslashes = str => {
-  return str.replace(REGEX_REMOVE_BACKSLASH, match => {
-    return match === '\\' ? '' : match;
-  });
-};
+	const el = element instanceof HTMLElement ? element : document.getElementById( element );
 
-exports.escapeLast = (input, char, lastIdx) => {
-  const idx = input.lastIndexOf(char, lastIdx);
-  if (idx === -1) return input;
-  if (input[idx - 1] === '\\') return exports.escapeLast(input, char, idx - 1);
-  return `${input.slice(0, idx)}\\${input.slice(idx)}`;
-};
+	if ( el && el.textContent !== text ) {
 
-exports.removePrefix = (input, state = {}) => {
-  let output = input;
-  if (output.startsWith('./')) {
-    output = output.slice(2);
-    state.prefix = './';
-  }
-  return output;
-};
+		el.textContent = text;
 
-exports.wrapOutput = (input, state = {}, options = {}) => {
-  const prepend = options.contains ? '' : '^';
-  const append = options.contains ? '' : '$';
+	}
 
-  let output = `${prepend}(?:${input})${append}`;
-  if (state.negated === true) {
-    output = `(?:^(?!${output}).*$)`;
-  }
-  return output;
-};
+}
 
-exports.basename = (path, { windows } = {}) => {
-  const segs = path.split(windows ? /[\\/]/ : '/');
-  const last = segs[segs.length - 1];
+export function getText( element ) {
 
-  if (last === '') {
-    return segs[segs.length - 2];
-  }
+	const el = element instanceof HTMLElement ? element : document.getElementById( element );
 
-  return last;
-};
+	return el ? el.textContent : null;
+
+}
+
+export function splitPath( fullPath ) {
+
+	const lastSlash = fullPath.lastIndexOf( '/' );
+
+	if ( lastSlash === - 1 ) {
+
+		return {
+			path: '',
+			name: fullPath.trim()
+		};
+
+	}
+
+	const path = fullPath.substring( 0, lastSlash ).trim();
+	const name = fullPath.substring( lastSlash + 1 ).trim();
+
+	return { path, name };
+
+}
+
+export function splitCamelCase( str ) {
+
+	return str.replace( /([a-z0-9])([A-Z])/g, '$1 $2' ).trim();
+
+}
